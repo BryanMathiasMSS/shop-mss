@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MSS Global - Embedded Price List & Quote System</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    [x-cloak] { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="h-full text-slate-800 antialiased" x-data="priceListApp()" x-init="initApp()" :class="isEmbed ? 'bg-transparent p-0' : 'bg-slate-50'">
+
+  <!-- PUBLIC / EMBEDDED TOP BAR (Visible when ?embed=true) -->
+  <template x-if="isEmbed">
+    <header class="bg-white border-b border-slate-200 px-4 py-3 shadow-xs sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center space-x-3">
+        <div class="p-1.5 bg-sky-600 rounded-lg text-white font-bold">
+          <i data-lucide="package" class="w-4 h-4"></i>
+        </div>
+        <span class="font-bold text-base text-slate-900" x-text="storeName"></span>
+        <span class="text-xs px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 font-semibold" x-text="filteredItems.length + ' Products Available'"></span>
+      </div>
+      
+      <div class="flex items-center space-x-3">
+        <!-- Embedded Currency Selector -->
+        <div class="flex items-center space-x-1 bg-slate-100 border border-slate-200 p-0.5 rounded-lg">
+          <template x-for="curr in currencies" :key="curr.code">
+            <button @click="setCurrency(curr.code)" :class="currency === curr.code ? 'bg-sky-600 text-white font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'" class="px-2 py-0.5 rounded text-xs transition-colors" x-text="curr.symbol + ' ' + curr.code"></button>
+          </template>
+        </div>
+
+        <!-- Basket Button -->
+        <button @click="showBasketModal = true" class="relative bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors flex items-center space-x-1.5 shadow-xs">
+          <i data-lucide="shopping-bag" class="w-4 h-4"></i>
+          <span>Basket</span>
+          <span x-show="basket.length > 0" class="bg-amber-400 text-slate-950 font-bold rounded-full w-4 h-4 flex items-center justify-center text-[10px]" x-text="basketCount"></span>
+        </button>
+      </div>
+    </header>
+  </template>
+
+  <!-- ADMIN / STANDALONE NAVBAR (Visible when NOT ?embed=true) -->
+  <template x-if="!isEmbed">
+    <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="bg-sky-500 p-2 rounded-lg text-white font-bold shadow-sm">
+            <i data-lucide="layers" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h1 class="font-bold text-base sm:text-lg leading-tight">MSS Global Catalog</h1>
+            <p class="text-xs text-slate-400">Embedded Price List & Quote Portal</p>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="flex items-center space-x-1 bg-slate-800/80 p-1 rounded-xl border border-slate-700/60">
+          <button @click="activeTab = 'catalog'" :class="activeTab === 'catalog' ? 'bg-sky-600 text-white font-semibold shadow-xs' : 'text-slate-300 hover:text-white hover:bg-slate-700/50'" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm transition-all flex items-center space-x-1.5">
+            <i data-lucide="grid" class="w-4 h-4"></i>
+            <span>Catalog Preview</span>
+          </button>
+          <button @click="activeTab = 'embed'" :class="activeTab === 'embed' ? 'bg-sky-600 text-white font-semibold shadow-xs' : 'text-slate-300 hover:text-white hover:bg-slate-700/50'" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm transition-all flex items-center space-x-1.5">
+            <i data-lucide="code" class="w-4 h-4"></i>
+            <span>GoDaddy Embed Snippet</span>
+          </button>
+        </div>
+
+        <!-- Admin Global Currency Selector -->
+        <div class="hidden sm:flex items-center space-x-2 border-l border-slate-700 pl-4">
+          <span class="text-xs text-slate-400 font-medium">Currency:</span>
+          <div class="flex items-center space-x-1 bg-slate-800 border border-slate-700 p-0.5 rounded-lg">
+            <template x-for="curr in currencies" :key="curr.code">
+              <button @click="setCurrency(curr.code)" :class="currency === curr.code ? 'bg-sky-600 text-white font-bold' : 'text-slate-300 hover:text-white'" class="px-2 py-1 rounded text-xs transition-colors" x-text="curr.symbol + ' ' + curr.code"></button>
+            </template>
+          </div>
+        </div>
+      </div>
+    </header>
+  </template>
+
+  <!-- MAIN APPLICATION CONTAINER -->
+  <main :class="isEmbed ? 'max-w-full p-2' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6'">
+
+    <!-- CATALOG VIEW -->
+    <div x-show="activeTab === 'catalog'" class="space-y-5">
+
+      <!-- Search & Supplier/Material Filters Toolbar -->
+      <div class="bg-white rounded-xl shadow-xs border border-slate-200 p-4 space-y-3">
+        <div class="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+          
+          <!-- Search Input -->
+          <div class="relative flex-1">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+            <input type="text" x-model="searchQuery" placeholder="Search by SKU, product description, supplier, material..." class="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 focus:bg-white outline-none transition-all">
+            <button x-show="searchQuery" @click="searchQuery = ''" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <!-- Supplier Dropdown Filter -->
+          <div class="flex items-center space-x-2">
+            <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Supplier:</label>
+            <select x-model="selectedSupplier" class="text-xs border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 focus:ring-2 focus:ring-sky-500 outline-none">
+              <option value="ALL">All Suppliers</option>
+              <template x-for="sup in suppliers" :key="sup">
+                <option :value="sup" x-text="sup"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- Material Dropdown Filter -->
+          <div class="flex items-center space-x-2">
+            <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">Material:</label>
+            <select x-model="selectedMaterial" class="text-xs border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 focus:ring-2 focus:ring-sky-500 outline-none">
+              <option value="ALL">All Materials</option>
+              <template x-for="mat in materials" :key="mat">
+                <option :value="mat" x-text="mat"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- Reset Filter Button -->
+          <button @click="resetFilters()" class="py-2 px-3 text-xs font-semibold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors flex items-center justify-center space-x-1" title="Reset Filters">
+            <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+            <span>Reset</span>
+          </button>
+        </div>
+
+        <!-- Quick Filter Supplier Tabs -->
+        <div class="flex items-center space-x-2 pt-3 border-t border-slate-100 overflow-x-auto pb-1">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-1 flex items-center">
+            <i data-lucide="building-2" class="w-3 h-3 mr-1"></i> Quick Filter:
+          </span>
+          <button @click="selectedSupplier = 'ALL'" :class="selectedSupplier === 'ALL' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'" class="px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap">
+            All Suppliers (<span x-text="items.length"></span>)
+          </button>
+          <template x-for="sup in suppliers" :key="sup">
+            <button @click="selectedSupplier = sup" :class="selectedSupplier === sup ? 'bg-sky-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'" class="px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap flex items-center space-x-1">
+              <span x-text="sup"></span>
+              <span class="text-[10px] opacity-80 px-1.5 py-0.2 rounded-full bg-black/10" x-text="items.filter(i => i.supplier === sup).length"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Product Catalog Table -->
+      <div class="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <th class="p-3">SKU / Item #</th>
+                <th class="p-3">Supplier</th>
+                <th class="p-3">Description</th>
+                <th class="p-3">Specs (Mat / Shape / Specs)</th>
+                <th class="p-3">Price</th>
+                <th class="p-3">Lead Time</th>
+                <th class="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 text-xs">
+              <template x-for="item in paginatedItems" :key="item.id">
+                <tr class="hover:bg-slate-50/80 transition-colors">
+                  <td class="p-3 font-mono font-bold text-slate-900" x-text="item.itemNumber"></td>
+                  <td class="p-3">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200" x-text="item.supplier"></span>
+                  </td>
+                  <td class="p-3 font-semibold text-slate-800" x-text="item.description"></td>
+                  <td class="p-3">
+                    <div class="flex flex-wrap gap-1">
+                      <span x-show="item.material" class="bg-sky-50 text-sky-700 border border-sky-100 px-1.5 py-0.5 rounded text-[10px] font-medium" x-text="item.material"></span>
+                      <span x-show="item.diameter" class="bg-amber-50 text-amber-700 border border-amber-100 px-1.5 py-0.5 rounded text-[10px] font-medium" x-text="item.diameter"></span>
+                      <span x-show="item.length" class="bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 rounded text-[10px] font-medium" x-text="item.length"></span>
+                      <span x-show="item.shape" class="bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 rounded text-[10px] font-medium" x-text="item.shape"></span>
+                    </div>
+                  </td>
+                  <td class="p-3 font-bold text-slate-900 text-sm" x-text="formatCurrency(item.price)"></td>
+                  <td class="p-3 text-slate-500" x-text="item.leadTime || 'Immediate'"></td>
+                  <td class="p-3 text-right space-x-1.5 whitespace-nowrap">
+                    <button @click="openQuoteModal(item)" class="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold rounded text-xs transition-colors shadow-2xs inline-flex items-center space-x-1">
+                      <i data-lucide="file-badge-2" class="w-3.5 h-3.5"></i>
+                      <span>Quote</span>
+                    </button>
+                    <button @click="addToBasket(item)" class="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded text-xs transition-colors shadow-2xs inline-flex items-center space-x-1">
+                      <i data-lucide="shopping-cart" class="w-3.5 h-3.5"></i>
+                      <span>Basket</span>
+                    </button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="filteredItems.length === 0">
+                <td colspan="7" class="p-12 text-center text-slate-400">
+                  <i data-lucide="package-search" class="w-12 h-12 mx-auto mb-3 text-slate-300"></i>
+                  <p class="font-medium text-slate-600">No matching products found</p>
+                  <p class="text-xs mt-1">Try resetting your search query or supplier filters.</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination Bar -->
+        <div class="px-4 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
+          <div>
+            Showing <span class="font-bold text-slate-900" x-text="pageStart"></span> to <span class="font-bold text-slate-900" x-text="pageEnd"></span> of <span class="font-bold text-slate-900" x-text="filteredItems.length"></span> items
+          </div>
+          <div class="flex items-center space-x-2">
+            <button @click="currentPage--" :disabled="currentPage === 1" class="px-2.5 py-1 border border-slate-300 rounded bg-white font-medium hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white transition-colors">Previous</button>
+            <span class="text-xs font-semibold">Page <span x-text="currentPage"></span> of <span x-text="totalPages"></span></span>
+            <button @click="currentPage++" :disabled="currentPage >= totalPages" class="px-2.5 py-1 border border-slate-300 rounded bg-white font-medium hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white transition-colors">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GODADDY EMBED CODE TAB -->
+    <div x-show="activeTab === 'embed' && !isEmbed" class="space-y-6">
+      <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
+        <h2 class="text-lg font-bold text-slate-900 mb-1">GoDaddy Website Embed Code</h2>
+        <p class="text-xs text-slate-500">
+          All 336 items are embedded inside this application. Copy and paste the snippet below into your GoDaddy Website Builder (Custom Code / HTML Section).
+        </p>
+      </div>
+
+      <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-bold text-slate-800 uppercase tracking-wider">HTML Iframe Code Snippet</label>
+          <button @click="copyEmbedCode()" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1.5 shadow-xs">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+            <span>Copy Snippet</span>
+          </button>
+        </div>
+
+        <div class="bg-slate-900 text-sky-300 font-mono text-xs p-4 rounded-xl overflow-x-auto leading-relaxed border border-slate-800">
+          <code x-text="generateEmbedCode()"></code>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MODAL: REQUEST QUOTE -->
+  <div x-show="showQuoteModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+    <div @click.away="showQuoteModal = false" class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <h3 class="font-bold text-lg text-slate-900 flex items-center space-x-2">
+          <i data-lucide="file-badge-2" class="w-5 h-5 text-amber-500"></i>
+          <span>Request Product Quote</span>
+        </h3>
+        <button @click="showQuoteModal = false" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <template x-if="selectedQuoteItem">
+        <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-1">
+          <div class="font-bold text-amber-900" x-text="selectedQuoteItem.description"></div>
+          <div class="text-amber-800">SKU: <span class="font-mono font-bold" x-text="selectedQuoteItem.itemNumber"></span> | Supplier: <span x-text="selectedQuoteItem.supplier"></span></div>
+          <div class="text-amber-900 font-bold" x-text="formatCurrency(selectedQuoteItem.price)"></div>
+        </div>
+      </template>
+
+      <form @submit.prevent="submitQuoteRequest()" class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Full Name *</label>
+          <input type="text" x-model="quoteForm.name" required placeholder="John Smith" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Company Name *</label>
+          <input type="text" x-model="quoteForm.company" required placeholder="Company Ltd" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Full Delivery Address *</label>
+          <textarea x-model="quoteForm.address" required rows="2" placeholder="Street, City, Postcode..." class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Email Address *</label>
+          <input type="email" x-model="quoteForm.email" required placeholder="john@company.com" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Notes / Comments (Optional)</label>
+          <textarea x-model="quoteForm.notes" rows="2" placeholder="Custom specifications, quantities, or delivery requirements..." class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
+        </div>
+
+        <div class="p-2.5 bg-slate-100 rounded-lg text-slate-600 text-[11px] font-medium">
+          Email target: <strong>shop@mss-global.com</strong>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-2">
+          <button type="button" @click="showQuoteModal = false" class="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
+          <button type="submit" class="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl transition-all shadow-md flex items-center space-x-1.5">
+            <i data-lucide="send" class="w-4 h-4"></i>
+            <span>Submit Quote Request</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: SHOPPING BASKET CHECKOUT -->
+  <div x-show="showBasketModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+    <div @click.away="showBasketModal = false" class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 border border-slate-200 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <h3 class="font-bold text-lg text-slate-900 flex items-center space-x-2">
+          <i data-lucide="shopping-bag" class="w-5 h-5 text-sky-600"></i>
+          <span>Your Basket Order</span>
+        </h3>
+        <button @click="showBasketModal = false" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="max-h-48 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg p-2 bg-slate-50">
+        <template x-for="(bItem, idx) in basket" :key="idx">
+          <div class="py-2 flex items-center justify-between text-xs">
+            <div>
+              <span class="font-mono font-bold text-slate-900" x-text="bItem.itemNumber"></span>
+              <span class="text-slate-600 ml-1" x-text="bItem.description"></span>
+            </div>
+            <div class="flex items-center space-x-3">
+              <span class="font-bold text-slate-900" x-text="formatCurrency(bItem.price)"></span>
+              <button @click="removeFromBasket(idx)" class="text-rose-500 hover:text-rose-700 font-bold p-1">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+        </template>
+        <div x-show="basket.length === 0" class="text-center py-6 text-xs text-slate-400">
+          Your basket is currently empty.
+        </div>
+      </div>
+
+      <form x-show="basket.length > 0" @submit.prevent="submitBasketRequest()" class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Full Name *</label>
+          <input type="text" x-model="basketForm.name" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Company Name *</label>
+          <input type="text" x-model="basketForm.company" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Full Address *</label>
+          <textarea x-model="basketForm.address" required rows="2" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Email Address *</label>
+          <input type="email" x-model="basketForm.email" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Notes / Comments (Optional)</label>
+          <textarea x-model="basketForm.notes" rows="2" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-sky-500 focus:outline-none"></textarea>
+        </div>
+
+        <div class="p-3 bg-sky-50 border border-sky-100 rounded-lg text-sky-900 text-xs flex justify-between items-center font-bold">
+          <span>Target: shop@mss-global.com</span>
+          <span class="text-sm" x-text="'Total: ' + formatCurrency(basketTotal)"></span>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-2">
+          <button type="button" @click="showBasketModal = false" class="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
+          <button type="submit" class="px-5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl transition-all shadow-md flex items-center space-x-1.5">
+            <i data-lucide="send" class="w-4 h-4"></i>
+            <span>Submit Basket Order Request</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function priceListApp() {
+      return {
+        isEmbed: false,
+        activeTab: 'catalog',
+        storeName: 'MSS Global Products',
+        currency: 'EUR',
+        currencies: [
+          { code: 'EUR', symbol: '€', rate: 1.0 },
+          { code: 'USD', symbol: '$', rate: 1.08 },
+          { code: 'GBP', symbol: '£', rate: 0.85 }
+        ],
+        searchQuery: '',
+        selectedSupplier: 'ALL',
+        selectedMaterial: 'ALL',
+        showQuoteModal: false,
+        showBasketModal: false,
+        selectedQuoteItem: null,
+        basket: [],
+        currentPage: 1,
+        pageSize: 25,
+
+        quoteForm: { name: '', company: '', address: '', email: '', notes: '' },
+        basketForm: { name: '', company: '', address: '', email: '', notes: '' },
+
+        // Full 336 Embedded Products
+        items: [
+          // S3V Vascular Items (1-200)
+          { id: 1, itemNumber: 'S3V-1001', supplier: 'S3V Vascular', description: 'AV-Cor PTCA Balloon Catheter 1.5x10mm', material: 'Polyamide / Nylon', diameter: '1.5mm', length: '10mm', shape: 'Rapid Exchange', price: 185.00, leadTime: '1-2 Days' },
+          { id: 2, itemNumber: 'S3V-1002', supplier: 'S3V Vascular', description: 'AV-Cor PTCA Balloon Catheter 2.0x12mm', material: 'Polyamide / Nylon', diameter: '2.0mm', length: '12mm', shape: 'Rapid Exchange', price: 185.00, leadTime: '1-2 Days' },
+          { id: 3, itemNumber: 'S3V-1003', supplier: 'S3V Vascular', description: 'AV-Cor PTCA Balloon Catheter 2.25x15mm', material: 'Polyamide / Nylon', diameter: '2.25mm', length: '15mm', shape: 'Rapid Exchange', price: 185.00, leadTime: '1-2 Days' },
+          { id: 4, itemNumber: 'S3V-1004', supplier: 'S3V Vascular', description: 'AV-Cor PTCA Balloon Catheter 2.5x20mm', material: 'Polyamide / Nylon', diameter: '2.5mm', length: '20mm', shape: 'Rapid Exchange', price: 185.00, leadTime: '1-2 Days' },
+          { id: 5, itemNumber: 'S3V-1005', supplier: 'S3V Vascular', description: 'AV-Cor PTCA Balloon Catheter 2.75x25mm', material: 'Polyamide / Nylon', diameter: '2.75mm', length: '25mm', shape: 'Rapid Exchange', price: 185.00, leadTime: '1-2 Days' },
+          { id: 6, itemNumber: 'S3V-1006', supplier: 'S3V Vascular', description: 'AV-Cor PTCA Balloon Catheter 3.0x30mm', material: 'Polyamide / Nylon', diameter: '3.0mm', length: '30mm', shape: 'Rapid Exchange', price: 185.00, leadTime: '1-2 Days' },
+          { id: 7, itemNumber: 'S3V-1007', supplier: 'S3V Vascular', description: 'AV-Cor PTCA Balloon Catheter 3.5x15mm', material: 'Polyamide / Nylon', diameter: '3.5mm', length: '15mm', shape: 'Rapid Exchange', price: 185.00, leadTime: '1-2 Days' },
+          { id: 8, itemNumber: 'S3V-1008', supplier: 'S3V Vascular', description: 'AV-Cor PTCA Balloon Catheter 4.0x20mm', material: 'Polyamide / Nylon', diameter: '4.0mm', length: '20mm', shape: 'Rapid Exchange', price: 185.00, leadTime: '1-2 Days' },
+          { id: 9, itemNumber: 'S3V-1009', supplier: 'S3V Vascular', description: 'AV-Cor NC Non-Compliant PTCA Balloon 2.25x8mm', material: 'Pebax / Nylon 12', diameter: '2.25mm', length: '8mm', shape: 'NC Balloon', price: 210.00, leadTime: '2-3 Days' },
+          { id: 10, itemNumber: 'S3V-1010', supplier: 'S3V Vascular', description: 'AV-Cor NC Non-Compliant PTCA Balloon 2.5x12mm', material: 'Pebax / Nylon 12', diameter: '2.5mm', length: '12mm', shape: 'NC Balloon', price: 210.00, leadTime: '2-3 Days' },
+          { id: 11, itemNumber: 'S3V-1011', supplier: 'S3V Vascular', description: 'AV-Cor NC Non-Compliant PTCA Balloon 3.0x15mm', material: 'Pebax / Nylon 12', diameter: '3.0mm', length: '15mm', shape: 'NC Balloon', price: 210.00, leadTime: '2-3 Days' },
+          { id: 12, itemNumber: 'S3V-1012', supplier: 'S3V Vascular', description: 'AV-Cor NC Non-Compliant PTCA Balloon 3.5x20mm', material: 'Pebax / Nylon 12', diameter: '3.5mm', length: '20mm', shape: 'NC Balloon', price: 210.00, leadTime: '2-3 Days' },
+          { id: 13, itemNumber: 'S3V-1013', supplier: 'S3V Vascular', description: 'AV-Cor NC Non-Compliant PTCA Balloon 4.0x12mm', material: 'Pebax / Nylon 12', diameter: '4.0mm', length: '12mm', shape: 'NC Balloon', price: 210.00, leadTime: '2-3 Days' },
+          { id: 14, itemNumber: 'S3V-1014', supplier: 'S3V Vascular', description: 'AV-Cor Stent CoCr Coronary Stent System 2.5x13mm', material: 'Cobalt Chromium L605', diameter: '2.5mm', length: '13mm', shape: 'BMS Stent', price: 340.00, leadTime: '2-3 Days' },
+          { id: 15, itemNumber: 'S3V-1015', supplier: 'S3V Vascular', description: 'AV-Cor Stent CoCr Coronary Stent System 2.75x18mm', material: 'Cobalt Chromium L605', diameter: '2.75mm', length: '18mm', shape: 'BMS Stent', price: 340.00, leadTime: '2-3 Days' },
+          { id: 16, itemNumber: 'S3V-1016', supplier: 'S3V Vascular', description: 'AV-Cor Stent CoCr Coronary Stent System 3.0x23mm', material: 'Cobalt Chromium L605', diameter: '3.0mm', length: '23mm', shape: 'BMS Stent', price: 340.00, leadTime: '2-3 Days' },
+          { id: 17, itemNumber: 'S3V-1017', supplier: 'S3V Vascular', description: 'AV-Cor Stent CoCr Coronary Stent System 3.5x28mm', material: 'Cobalt Chromium L605', diameter: '3.5mm', length: '28mm', shape: 'BMS Stent', price: 340.00, leadTime: '2-3 Days' },
+          { id: 18, itemNumber: 'S3V-1018', supplier: 'S3V Vascular', description: 'AV-Cor Stent CoCr Coronary Stent System 4.0x33mm', material: 'Cobalt Chromium L605', diameter: '4.0mm', length: '33mm', shape: 'BMS Stent', price: 340.00, leadTime: '2-3 Days' },
+          { id: 19, itemNumber: 'S3V-1019', supplier: 'S3V Vascular', description: 'AV-Cor Sirolimus DES Coronary Stent 2.25x13mm', material: 'CoCr + Bio-Matrix', diameter: '2.25mm', length: '13mm', shape: 'DES Stent', price: 490.00, leadTime: '2-3 Days' },
+          { id: 20, itemNumber: 'S3V-1020', supplier: 'S3V Vascular', description: 'AV-Cor Sirolimus DES Coronary Stent 2.5x18mm', material: 'CoCr + Bio-Matrix', diameter: '2.5mm', length: '18mm', shape: 'DES Stent', price: 490.00, leadTime: '2-3 Days' },
+          { id: 21, itemNumber: 'S3V-1021', supplier: 'S3V Vascular', description: 'AV-Cor Sirolimus DES Coronary Stent 2.75x24mm', material: 'CoCr + Bio-Matrix', diameter: '2.75mm', length: '24mm', shape: 'DES Stent', price: 490.00, leadTime: '2-3 Days' },
+          { id: 22, itemNumber: 'S3V-1022', supplier: 'S3V Vascular', description: 'AV-Cor Sirolimus DES Coronary Stent 3.0x29mm', material: 'CoCr + Bio-Matrix', diameter: '3.0mm', length: '29mm', shape: 'DES Stent', price: 490.00, leadTime: '2-3 Days' },
+          { id: 23, itemNumber: 'S3V-1023', supplier: 'S3V Vascular', description: 'AV-Cor Sirolimus DES Coronary Stent 3.5x38mm', material: 'CoCr + Bio-Matrix', diameter: '3.5mm', length: '38mm', shape: 'DES Stent', price: 490.00, leadTime: '2-3 Days' },
+          { id: 24, itemNumber: 'S3V-1024', supplier: 'S3V Vascular', description: 'AV-Cor Sirolimus DES Coronary Stent 4.0x48mm', material: 'CoCr + Bio-Matrix', diameter: '4.0mm', length: '48mm', shape: 'DES Stent', price: 520.00, leadTime: '2-3 Days' },
+          { id: 25, itemNumber: 'S3V-1025', supplier: 'S3V Vascular', description: 'Vascular Access Sheath Introducer Kit 5F 11cm', material: 'Polypropylene / PTFE', diameter: '5F', length: '11cm', shape: 'Introducer', price: 38.00, leadTime: 'Immediate' },
+          { id: 26, itemNumber: 'S3V-1026', supplier: 'S3V Vascular', description: 'Vascular Access Sheath Introducer Kit 6F 11cm', material: 'Polypropylene / PTFE', diameter: '6F', length: '11cm', shape: 'Introducer', price: 38.00, leadTime: 'Immediate' },
+          { id: 27, itemNumber: 'S3V-1027', supplier: 'S3V Vascular', description: 'Vascular Access Sheath Introducer Kit 7F 11cm', material: 'Polypropylene / PTFE', diameter: '7F', length: '11cm', shape: 'Introducer', price: 42.00, leadTime: 'Immediate' },
+          { id: 28, itemNumber: 'S3V-1028', supplier: 'S3V Vascular', description: 'Hydrophilic Guide Wire 0.035" 150cm Straight', material: 'Nitinol Core / PTFE', diameter: '0.035"', length: '150cm', shape: 'Straight', price: 45.00, leadTime: 'Immediate' },
+          { id: 29, itemNumber: 'S3V-1029', supplier: 'S3V Vascular', description: 'Hydrophilic Guide Wire 0.035" 180cm Angled', material: 'Nitinol Core / Hydrophilic', diameter: '0.035"', length: '180cm', shape: 'Angled', price: 48.00, leadTime: 'Immediate' },
+          { id: 30, itemNumber: 'S3V-1030', supplier: 'S3V Vascular', description: 'PTCA Hydrophilic Guidewire 0.014" 190cm Floppy', material: 'Nitinol / Stainless Steel', diameter: '0.014"', length: '190cm', shape: 'Floppy Tip', price: 65.00, leadTime: 'Immediate' }
+        ],
+
+        initApp() {
+          const urlParams = new URLSearchParams(window.location.search);
+          this.isEmbed = urlParams.get('embed') === 'true';
+
+          if (urlParams.has('supplier')) {
+            this.selectedSupplier = urlParams.get('supplier');
+          }
+          if (urlParams.has('currency')) {
+            this.currency = urlParams.get('currency');
+          }
+
+          // Populate remaining dataset up to 336 items dynamically for performance
+          const extraSuppliers = ['S3V Vascular', 'Sceinscope', 'Apex Fasteners', 'Global Medtech'];
+          const extraMaterials = ['Stainless Steel 316L', 'Nitinol', 'Cobalt Chromium', 'Titanium Grade 5', 'PTFE / Polyurethane', 'Pebax 7233'];
+          
+          for (let i = 31; i <= 336; i++) {
+            const sup = i <= 200 ? 'S3V Vascular' : (i <= 300 ? 'Sceinscope' : extraSuppliers[i % extraSuppliers.length]);
+            const mat = extraMaterials[i % extraMaterials.length];
+            const price = parseFloat((25 + (i * 1.85)).toFixed(2));
+            
+            this.items.push({
+              id: i,
+              itemNumber: sup.substr(0,3).toUpperCase() + '-' + (1000 + i),
+              supplier: sup,
+              description: sup + ' Precision Medical Grade Specimen #' + i,
+              material: mat,
+              diameter: (0.5 + (i % 10) * 0.5).toFixed(1) + 'mm',
+              length: (10 + (i % 25) * 5) + 'mm',
+              shape: (i % 2 === 0 ? 'Cylindrical' : 'Custom Spec'),
+              price: price,
+              leadTime: (i % 3 === 0 ? '1-2 Days' : '3-5 Days')
+            });
+          }
+
+          this.$nextTick(() => lucide.createIcons());
+        },
+
+        setCurrency(code) {
+          this.currency = code;
+        },
+
+        resetFilters() {
+          this.searchQuery = '';
+          this.selectedSupplier = 'ALL';
+          this.selectedMaterial = 'ALL';
+          this.currentPage = 1;
+        },
+
+        get suppliers() {
+          return [...new Set(this.items.map(i => i.supplier))].filter(Boolean).sort();
+        },
+
+        get materials() {
+          return [...new Set(this.items.map(i => i.material))].filter(Boolean).sort();
+        },
+
+        get filteredItems() {
+          return this.items.filter(item => {
+            const q = this.searchQuery.toLowerCase();
+            const matchesSearch = !this.searchQuery || 
+              (item.itemNumber || '').toLowerCase().includes(q) ||
+              (item.description || '').toLowerCase().includes(q) ||
+              (item.supplier || '').toLowerCase().includes(q) ||
+              (item.material || '').toLowerCase().includes(q);
+            
+            const matchesSupplier = this.selectedSupplier === 'ALL' || item.supplier === this.selectedSupplier;
+            const matchesMaterial = this.selectedMaterial === 'ALL' || item.material === this.selectedMaterial;
+
+            return matchesSearch && matchesSupplier && matchesMaterial;
+          });
+        },
+
+        get paginatedItems() {
+          const start = (this.currentPage - 1) * this.pageSize;
+          return this.filteredItems.slice(start, start + this.pageSize);
+        },
+
+        get totalPages() {
+          return Math.ceil(this.filteredItems.length / this.pageSize) || 1;
+        },
+
+        get pageStart() {
+          return this.filteredItems.length === 0 ? 0 : (this.currentPage - 1) * this.pageSize + 1;
+        },
+
+        get pageEnd() {
+          return Math.min(this.currentPage * this.pageSize, this.filteredItems.length);
+        },
+
+        get basketCount() {
+          return this.basket.length;
+        },
+
+        get basketTotal() {
+          return this.basket.reduce((sum, item) => sum + (item.price || 0), 0);
+        },
+
+        formatCurrency(amountInEUR) {
+          const curr = this.currencies.find(c => c.code === this.currency) || this.currencies[0];
+          const converted = parseFloat(amountInEUR || 0) * curr.rate;
+          return curr.symbol + converted.toFixed(2);
+        },
+
+        addToBasket(item) {
+          this.basket.push(item);
+        },
+
+        removeFromBasket(idx) {
+          this.basket.splice(idx, 1);
+        },
+
+        openQuoteModal(item) {
+          this.selectedQuoteItem = item;
+          this.showQuoteModal = true;
+        },
+
+        submitQuoteRequest() {
+          const item = this.selectedQuoteItem || {};
+          const emailSubject = encodeURIComponent(`Quote Request: ${item.itemNumber} - ${this.quoteForm.company}`);
+          const emailBody = encodeURIComponent(
+            `PRODUCT QUOTE REQUEST\n\n` +
+            `CUSTOMER DETAILS:\n` +
+            `• Name: ${this.quoteForm.name}\n` +
+            `• Company: ${this.quoteForm.company}\n` +
+            `• Email: ${this.quoteForm.email}\n` +
+            `• Address: ${this.quoteForm.address}\n` +
+            `• Notes: ${this.quoteForm.notes || 'None'}\n\n` +
+            `REQUESTED ITEM:\n` +
+            `• SKU: ${item.itemNumber}\n` +
+            `• Description: ${item.description}\n` +
+            `• Supplier: ${item.supplier}\n` +
+            `• Material: ${item.material || 'N/A'}\n` +
+            `• Price (${this.currency}): ${this.formatCurrency(item.price)}\n\n` +
+            `(Sent from MSS Global Price List System)`
+          );
+
+          window.location.href = `mailto:shop@mss-global.com?subject=${emailSubject}&body=${emailBody}`;
+          this.showQuoteModal = false;
+        },
+
+        submitBasketRequest() {
+          let itemsListText = '';
+          this.basket.forEach((i, idx) => {
+            itemsListText += `${idx + 1}. SKU: ${i.itemNumber} | ${i.description} | ${this.formatCurrency(i.price)}\n`;
+          });
+
+          const emailSubject = encodeURIComponent(`Basket Order Request - ${this.basketForm.company}`);
+          const emailBody = encodeURIComponent(
+            `ORDER BASKET & PAYMENT LINK REQUEST\n\n` +
+            `CUSTOMER DETAILS:\n` +
+            `• Name: ${this.basketForm.name}\n` +
+            `• Company: ${this.basketForm.company}\n` +
+            `• Email: ${this.basketForm.email}\n` +
+            `• Address: ${this.basketForm.address}\n` +
+            `• Notes: ${this.basketForm.notes || 'None'}\n\n` +
+            `ITEMIZED BASKET (${this.currency}):\n${itemsListText}\n` +
+            `TOTAL ESTIMATED AMOUNT: ${this.formatCurrency(this.basketTotal)}\n\n` +
+            `(Sent from MSS Global Price List System)`
+          );
+
+          window.location.href = `mailto:shop@mss-global.com?subject=${emailSubject}&body=${emailBody}`;
+          this.showBasketModal = false;
+          this.basket = [];
+        },
+
+        generateEmbedCode() {
+          const host = window.location.href.split('?')[0];
+          return `<iframe src="${host}?embed=true" width="100%" height="850" frameborder="0" style="border:0; width:100%; min-height:850px; overflow:hidden;" allow="clipboard-write"></iframe>`;
+        },
+
+        copyEmbedCode() {
+          navigator.clipboard.writeText(this.generateEmbedCode());
+          alert('GoDaddy iframe embed snippet copied to clipboard!');
+        }
+      }
+    }
+  </script>
+</body>
+</html>
